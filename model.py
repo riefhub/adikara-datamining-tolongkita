@@ -52,7 +52,6 @@ class CreditRiskModel:
             target_dist = self.train_df['target'].value_counts()
             print(target_dist)
         
-        # Categorical columns analysis
         categorical_cols = self.train_df.select_dtypes(include=['object']).columns.tolist()
         if categorical_cols:
             print(f"\nCategorical Variables:")
@@ -60,7 +59,6 @@ class CreditRiskModel:
                 print(f"  {col}: {self.train_df[col].nunique()} unique values")
                 print(f"    Top values: {self.train_df[col].value_counts().head(3).to_dict()}")
         
-        # Numerical columns summary
         numerical_cols = self.train_df.select_dtypes(include=[np.number]).columns.tolist()
         if numerical_cols:
             print(f"\nNumerical Variables Summary:")
@@ -73,10 +71,8 @@ class CreditRiskModel:
 
         print("\n=== Preprocessing Data ===")
         
-        # Separate features and target
         if target_col in self.train_df.columns:
             self.y_train = self.train_df[target_col]
-            # Drop target and ID columns from features
             cols_to_drop = [target_col]
             if id_col in self.train_df.columns:
                 cols_to_drop.append(id_col)
@@ -85,19 +81,15 @@ class CreditRiskModel:
         else:
             self.X_train = self.train_df.copy()
             self.y_train = None
-            # Still check for ID column
             if id_col in self.train_df.columns:
                 self.train_id_col = id_col
             else:
                 self.train_id_col = None
             
-        # Handle test data
         if self.test_df is not None:
-            # Store ID column for test data
             if id_col in self.test_df.columns:
                 self.test_id_col = id_col
                 self.test_ids = self.test_df[id_col].copy()
-                # Drop ID column from test features
                 self.X_test = self.test_df.drop(columns=[id_col])
             else:
                 self.test_id_col = None
@@ -108,13 +100,11 @@ class CreditRiskModel:
             self.test_id_col = None
             self.test_ids = None
         
-        # Identify date columns (will be processed in feature_engineering)
         date_cols = []
         for col in self.X_train.columns:
             if 'tanggal' in col.lower() or 'date' in col.lower():
                 date_cols.append(col)
         
-        # Identify categorical and numerical columns (excluding date columns)
         categorical_cols = [col for col in self.X_train.select_dtypes(include=['object', 'category']).columns 
                            if col not in date_cols]
         numerical_cols = self.X_train.select_dtypes(include=[np.number]).columns.tolist()
@@ -124,7 +114,6 @@ class CreditRiskModel:
         print(f"Categorical columns: {categorical_cols}")
         print(f"Numerical columns: {numerical_cols}")
         
-        # Handle missing values in numerical columns
         for col in numerical_cols:
             if self.X_train[col].isnull().sum() > 0:
                 median_val = self.X_train[col].median()
@@ -132,7 +121,6 @@ class CreditRiskModel:
                 if self.X_test is not None:
                     self.X_test[col].fillna(median_val, inplace=True)
         
-        # Handle missing values in categorical columns
         for col in categorical_cols:
             if self.X_train[col].isnull().sum() > 0:
                 mode_val = self.X_train[col].mode()[0] if len(self.X_train[col].mode()) > 0 else 'Unknown'
@@ -140,10 +128,8 @@ class CreditRiskModel:
                 if self.X_test is not None:
                     self.X_test[col].fillna(mode_val, inplace=True)
         
-        # Encode categorical variables
         for col in categorical_cols:
             le = LabelEncoder()
-            # Fit on combined data to handle unseen categories
             combined = pd.concat([self.X_train[col], self.X_test[col] if self.X_test is not None else pd.Series()])
             le.fit(combined.astype(str))
             
@@ -153,7 +139,6 @@ class CreditRiskModel:
             
             self.label_encoders[col] = le
         
-        # Store feature columns
         self.feature_columns = self.X_train.columns.tolist()
         
         print(f"\nPreprocessed training data shape: {self.X_train.shape}")
@@ -226,7 +211,6 @@ class CreditRiskModel:
                 )
             
             if 'jumlah_pinjaman' in df.columns:
-                # Categorize loan amount (small, medium, large)
                 df['kategori_pinjaman'] = pd.cut(
                     df['jumlah_pinjaman'],
                     bins=[0, 200000, 800000, float('inf')],
@@ -276,13 +260,6 @@ class CreditRiskModel:
         return self
     
     def train_models(self, use_cv=True, cv_folds=5):
-        """
-        Train multiple models and select the best one.
-        
-        Args:
-            use_cv: Whether to use cross-validation
-            cv_folds: Number of CV folds
-        """
         print("\n=== Training Models ===")
         
         if self.y_train is None:
@@ -375,7 +352,6 @@ class CreditRiskModel:
         
         print("\n=== Making Predictions ===")
         
-        # Scale test data
         X_test_scaled = self.scalers['main'].transform(self.X_test)
         
         if return_proba:
@@ -393,17 +369,14 @@ class CreditRiskModel:
             print("No test data available.")
             return
         
-        # Use stored test IDs if available, otherwise try to get from X_test
         if self.test_ids is not None:
             ids = self.test_ids
         elif id_col in self.X_test.columns:
             ids = self.X_test[id_col]
         else:
-            # Fallback: generate sequential IDs
             ids = range(len(predictions))
             print(f"Warning: {id_col} not found. Using sequential IDs.")
         
-        # Ensure predictions are integers (0 or 1)
         predictions = predictions.astype(int)
         
         submission_df = pd.DataFrame({
