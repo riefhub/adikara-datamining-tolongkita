@@ -47,7 +47,8 @@ class CreditRiskModel:
         if 'status_gagal_bayar' in self.train_df.columns:
             target_dist = self.train_df['status_gagal_bayar'].value_counts()
             print(target_dist)
-            print(f"Default Rate: {(target_dist[1] / len(self.train_df) * 100):.2f}%")
+            default_count = target_dist.get(1, 0)
+            print(f"Default Rate: {(default_count / len(self.train_df) * 100):.2f}%")
         elif 'target' in self.train_df.columns:
             target_dist = self.train_df['target'].value_counts()
             print(target_dist)
@@ -130,13 +131,14 @@ class CreditRiskModel:
         
         for col in categorical_cols:
             le = LabelEncoder()
-            combined = pd.concat([self.X_train[col], self.X_test[col] if self.X_test is not None else pd.Series()])
-            le.fit(combined.astype(str))
-            
+            test_col_series = self.X_test[col] if (self.X_test is not None and col in self.X_test.columns) else pd.Series(dtype=str)
+            combined = pd.concat([self.X_train[col].astype(str), test_col_series.astype(str)])
+            le.fit(combined)
+
             self.X_train[col] = le.transform(self.X_train[col].astype(str))
-            if self.X_test is not None:
+            if self.X_test is not None and col in self.X_test.columns:
                 self.X_test[col] = le.transform(self.X_test[col].astype(str))
-            
+
             self.label_encoders[col] = le
         
         self.feature_columns = self.X_train.columns.tolist()
@@ -211,18 +213,20 @@ class CreditRiskModel:
                 )
             
             if 'jumlah_pinjaman' in df.columns:
-                df['kategori_pinjaman'] = pd.cut(
+                cat = pd.cut(
                     df['jumlah_pinjaman'],
                     bins=[0, 200000, 800000, float('inf')],
                     labels=[0, 1, 2]
-                ).astype(int)
+                )
+                df['kategori_pinjaman'] = cat.cat.codes
             
             if 'durasi_hari' in df.columns:
-                df['kategori_durasi'] = pd.cut(
+                cat2 = pd.cut(
                     df['durasi_hari'],
                     bins=[0, 7, 30, float('inf')],
                     labels=[0, 1, 2]
-                ).astype(int)
+                )
+                df['kategori_durasi'] = cat2.cat.codes
         
         if self.X_test is not None:
             train_cols = set(self.X_train.columns)
@@ -253,9 +257,9 @@ class CreditRiskModel:
         if self.X_test is not None:
             print(f"Test features: {self.X_test.shape[1]} columns")
             if set(self.X_train.columns) == set(self.X_test.columns):
-                print("✓ Train and test have matching columns")
+                print("Train and test have matching columns")
             else:
-                print("⚠ Warning: Train and test columns don't match!")
+                print("WARNING: Train and test columns don't match!")
         
         return self
     
@@ -323,6 +327,14 @@ class CreditRiskModel:
             model.fit(X_train_scaled, self.y_train)
             self.models[name] = model
         
+        if not self.models:
+            raise RuntimeError("No models were trained.")
+
+        if best_model_name is None:
+            # fallback: choose the first trained model if none improved best_score
+            best_model_name = next(iter(self.models))
+            print(f"No model achieved a positive CV/validation score; defaulting to '{best_model_name}'.")
+
         self.best_model = self.models[best_model_name]
         print(f"\nBest model: {best_model_name} with Macro F1-Score: {best_score:.4f}")
         
@@ -377,11 +389,16 @@ class CreditRiskModel:
             ids = range(len(predictions))
             print(f"Warning: {id_col} not found. Using sequential IDs.")
         
-        predictions = predictions.astype(int)
+        # Handle probability predictions safely: if floats in [0,1], apply 0.5 threshold
+        preds = np.array(predictions)
+        if np.issubdtype(preds.dtype, np.floating) and preds.min() >= 0.0 and preds.max() <= 1.0:
+            preds = (preds >= 0.5).astype(int)
+        else:
+            preds = preds.astype(int)
         
         submission_df = pd.DataFrame({
             'id_transaksi': ids,
-            'status_gagal_bayar': predictions
+            'status_gagal_bayar': preds
         })
         
         submission_df.to_csv(output_path, index=False)
@@ -459,4 +476,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
